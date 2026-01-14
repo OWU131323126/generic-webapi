@@ -4,10 +4,6 @@ require('dotenv').config();
 const http = require('http');
 const { Server } = require('socket.io');
 
-// Node18未満対策（Render用）
-const fetch = (...args) =>
-  import('node-fetch').then(({ default: fetch }) => fetch(...args));
-
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
@@ -22,7 +18,7 @@ app.use(express.static('public'));
 ====================== */
 const MODEL = 'gpt-4o-mini';
 const OPENAI_API_ENDPOINT =
-  'https://openai-api-proxy-746164391621.us-west1.run.app';
+  'https://api.openai.com/v1/chat/completions';
 
 /* ======================
    prompt.md 読み込み（占い用）
@@ -51,7 +47,6 @@ app.post('/api/fortune', async (req, res) => {
     const fortunes = await callOpenAIForFortune(finalPrompt);
 
     res.json({ fortunes });
-
   } catch (err) {
     console.error('FORTUNE ERROR:', err);
     res.status(500).json({ error: '占い生成エラー' });
@@ -59,7 +54,7 @@ app.post('/api/fortune', async (req, res) => {
 });
 
 /* ======================
-   🔮 OpenAI（占い専用：JSONを期待）
+   🔮 OpenAI（占い専用：JSON厳守）
 ====================== */
 async function callOpenAIForFortune(prompt) {
   if (!process.env.OPENAI_API_KEY) {
@@ -74,40 +69,30 @@ async function callOpenAIForFortune(prompt) {
     },
     body: JSON.stringify({
       model: MODEL,
-      messages: [{ role: 'system', content: prompt }]
+      messages: [
+        { role: 'system', content: prompt }
+      ],
+      response_format: { type: 'json_object' }
     })
   });
 
   const data = await response.json();
 
-  // ✅ Render対策：ここが最重要
   if (!data.choices || !data.choices[0]) {
-    console.error('INVALID OPENAI RESPONSE:', data);
-    throw new Error('OpenAI応答が不正です');
+    console.error('OpenAI INVALID RESPONSE:', data);
+    throw new Error('OpenAI response invalid');
   }
 
   const raw = data.choices[0].message.content;
 
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    console.error('JSON PARSE ERROR:', raw);
-    throw new Error('JSON解析に失敗しました');
-  }
-
+  const parsed = JSON.parse(raw);
   return parsed.fortunes;
 }
-
 
 /* ======================
    💬 OpenAI（チャット専用：文章）
 ====================== */
 async function callOpenAIForChat(prompt) {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY が設定されていません');
-  }
-
   const response = await fetch(OPENAI_API_ENDPOINT, {
     method: 'POST',
     headers: {
@@ -116,7 +101,9 @@ async function callOpenAIForChat(prompt) {
     },
     body: JSON.stringify({
       model: MODEL,
-      messages: [{ role: 'system', content: prompt }]
+      messages: [
+        { role: 'system', content: prompt }
+      ]
     })
   });
 
