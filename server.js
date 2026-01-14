@@ -1,138 +1,174 @@
 const express = require('express');
-const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
+const http = require('http');
+const { Server } = require('socket.io');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
 const PORT = process.env.PORT || 8080;
 
 app.use(express.json());
 app.use(express.static('public'));
 
-// 設定をコードで定義
-const PROVIDER = 'gemini';  // 'openai' or 'gemini'
-const MODEL = 'gemini-2.5-flash';  // OpenAI: 'gpt-4o-mini', Gemini: 'gemini-2.5-flash'
+/* ======================
+   設定
+====================== */
+const MODEL = 'gpt-4o-mini';
+const OPENAI_API_ENDPOINT =
+  'https://openai-api-proxy-746164391621.us-west1.run.app';
 
+/* ======================
+   prompt.md 読み込み（占い用）
+====================== */
 let promptTemplate;
 try {
-    promptTemplate = fs.readFileSync('prompt.md', 'utf8');
-} catch (error) {
-    console.error('Error reading prompt.md:', error);
-    process.exit(1);
+  promptTemplate = fs.readFileSync('prompt.md', 'utf8');
+} catch (err) {
+  console.error('prompt.md が読み込めません', err);
+  process.exit(1);
 }
 
-const OPENAI_API_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
-const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models/';
+/* ======================
+   占いAPI
+====================== */
+app.post('/api/fortune', async (req, res) => {
+  try {
+    const { birthDate, health } = req.body;
+    const today = new Date().toISOString().slice(0, 10);
 
-app.post('/api/', async (req, res) => {
-    try {
-        const { prompt, title = 'Generated Content', ...variables } = req.body;
+    const finalPrompt = promptTemplate
+      .replace(/\$\{birthDate\}/g, birthDate)
+      .replace(/\$\{today\}/g, today)
+      .replace(/\$\{health\}/g, JSON.stringify(health, null, 2));
 
-        // prompt.mdのテンプレート変数を自動置換
-        let finalPrompt = prompt || promptTemplate;
-        
-        // リクエストボディの全てのキーを変数として利用
-        for (const [key, value] of Object.entries(variables)) {
-            const regex = new RegExp(`\\$\\{${key}\\}`, 'g');
-            finalPrompt = finalPrompt.replace(regex, value);
-        }
+    const fortunes = await callOpenAIForFortune(finalPrompt);
 
-        let result;
-        if (PROVIDER === 'openai') {
-            result = await callOpenAI(finalPrompt);
-        } else if (PROVIDER === 'gemini') {
-            result = await callGemini(finalPrompt);
-        } else {
-            return res.status(400).json({ error: 'Invalid provider configuration' });
-        }
+    res.json({ fortunes });
 
-        res.json({ 
-            title: title,
-            questions: result 
-        });
-
-    } catch (error) {
-        console.error('API Error:', error);
-        res.status(500).json({ error: error.message });
-    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '占い生成エラー' });
+  }
 });
 
-async function callOpenAI(prompt) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-        throw new Error('OPENAI_API_KEY environment variable is not set');
-    }
+/* ======================
+   🔮 OpenAI（占い専用：JSON）
+====================== */
+async function callOpenAIForFortune(prompt) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY が設定されていません');
+  }
 
-    const response = await fetch(OPENAI_API_ENDPOINT, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-            model: MODEL,
-            messages: [
-                { role: 'system', content: prompt }
-            ],
-            max_completion_tokens: 2000,
-            response_format: { type: "json_object" }
-        })
-    });
+  const response = await fetch(OPENAI_API_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      messages: [{ role: 'system', content: prompt }],
+      response_format: { type: 'json_object' }
+    })
+  });
 
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || 'OpenAI API error');
-    }
+  const data = await response.json();
+  const raw = data.choices[0].message.content;
 
-    const data = await response.json();
-    const responseText = data.choices[0].message.content;
-    
-    try {
-        const parsedData = JSON.parse(responseText);
-        return Array.isArray(parsedData) ? parsedData : parsedData.quiz || [];
-    } catch (parseError) {
-        throw new Error('Failed to parse LLM response');
-    }
+  const parsed = JSON.parse(raw);
+  return parsed.fortunes;
 }
 
-async function callGemini(prompt) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-        throw new Error('GEMINI_API_KEY environment variable is not set');
-    }
+/* ======================
+   💬 OpenAI（チャット専用：文章）
+====================== */
+async function callOpenAIForChat(prompt) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY が設定されていません');
+  }
 
-    const response = await fetch(`${GEMINI_API_BASE_URL}${MODEL}:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            contents: [{
-                parts: [{ text: prompt }]
-            }],
-            generationConfig: {
-                maxOutputTokens: 2000,
-                response_mime_type: "application/json"
-            }
-        })
-    });
+  const response = await fetch(OPENAI_API_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      messages: [{ role: 'system', content: prompt }]
+    })
+  });
 
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || 'Gemini API error');
-    }
-
-    const data = await response.json();
-    const responseText = data.candidates[0].content.parts[0].text;
-    
-    try {
-        return JSON.parse(responseText);
-    } catch (parseError) {
-        throw new Error('Failed to parse LLM response');
-    }
+  const data = await response.json();
+  return data.choices[0].message.content.trim();
 }
 
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`Config: ${PROVIDER} - ${MODEL}`);
+/* ======================
+   🔥 AIチャット（Socket.IO）
+====================== */
+io.on('connection', socket => {
+  console.log('ユーザー接続');
+
+  socket.on('user-message', async text => {
+    console.log('CHAT:', text);
+
+    try {
+      const agents = [
+        {
+          agent: 'western',
+          name: '西洋占星術AI',
+          system: `
+あなたは西洋占星術師です。
+相談内容に対して、星回り・性格・心理傾向から助言してください。
+`
+        },
+        {
+          agent: 'eastern',
+          name: '東洋占術AI',
+          system: `
+あなたは東洋占術師です。
+相談内容を「気・流れ・陰陽」の観点から読み解いてください。
+`
+        },
+        {
+          agent: 'science',
+          name: '科学分析AI',
+          system: `
+あなたは科学的分析AIです。
+心理学・行動科学・統計っぽく現実的に分析してください。
+`
+        }
+      ];
+
+      for (const a of agents) {
+        const reply = await callOpenAIForChat(
+          `${a.system}\n\nユーザーの相談:\n${text}`
+        );
+
+        socket.emit('ai-message', {
+          agent: a.agent,
+          name: a.name,
+          message: reply
+        });
+      }
+
+    } catch (err) {
+      console.error(err);
+      socket.emit('ai-message', {
+        agent: 'system',
+        name: 'System',
+        message: 'AIの応答中にエラーが起きました'
+      });
+    }
+  });
+});
+
+/* ======================
+   起動
+====================== */
+server.listen(PORT, () => {
+  console.log(`Server running → http://localhost:${PORT}`);
 });

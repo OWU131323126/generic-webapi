@@ -1,239 +1,265 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Quiz Generator</title>
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="quiz.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🔮 AIによる占い AI Body Fortune</title>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #1a0033, #000);
+      color: #fff;
+      margin: 0;
+    }
+
+    .container {
+      max-width: 640px;
+      margin: auto;
+      padding: 20px;
+    }
+
+    h1 { text-align: center; }
+
+    .tabs {
+      display: flex;
+      margin-bottom: 12px;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 10px;
+      text-align: center;
+      cursor: pointer;
+      background: rgba(255,255,255,0.1);
+      border-radius: 12px 12px 0 0;
+      opacity: 0.6;
+    }
+
+    .tab.active {
+      background: linear-gradient(135deg, #7f5cff, #5ad7ff);
+      opacity: 1;
+      font-weight: bold;
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    .card {
+      background: rgba(255,255,255,0.06);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 0 30px rgba(122,100,255,0.25);
+    }
+
+    label { margin-top: 10px; display: block; }
+
+    input, select, textarea {
+      width: 100%;
+      padding: 10px;
+      margin-top: 6px;
+      border-radius: 8px;
+      border: none;
+      background: #111;
+      color: white;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      margin-top: 14px;
+      border-radius: 999px;
+      border: none;
+      font-weight: bold;
+      background: linear-gradient(135deg, #7f5cff, #5ad7ff);
+      color: white;
+      cursor: pointer;
+    }
+
+    .result { margin-top: 16px; }
+
+    .fortune {
+      background: rgba(0,0,0,0.5);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+
+    .chat {
+      background: #111;
+      padding: 12px;
+      border-radius: 12px;
+      height: 320px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+    }
+
+    .msg { margin-bottom: 10px; }
+
+    .user { color: #5ad7ff; font-weight: bold; }
+    .western { color: #ffb347; }
+    .eastern { color: #7fff7f; }
+    .science { color: #5ad7ff; }
+
+    #chatLoading {
+      text-align: center;
+      opacity: 0.8;
+      animation: blink 1.2s infinite;
+    }
+
+    @keyframes blink {
+      0% { opacity: 0.3; }
+      50% { opacity: 1; }
+      100% { opacity: 0.3; }
+    }
+
+    canvas { display: block; margin: 20px auto; }
+  </style>
 </head>
+
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>ITパスポート対策クイズ</h1>
-        </div>
+<div class="container">
+  <h1>🔮 AIによる占い AI Body Fortune</h1>
 
-        <div class="quiz-container">
-            <!-- クイズ設定画面 -->
-            <div class="quiz-setup" id="quizSetup">
-                <div class="form-group">
-                    <label for="quizTitle">クイズのタイトル:</label>
-                    <input type="text" id="quizTitle" placeholder="例: ITパスポート対策クイズ" value="ITパスポート対策クイズ">
-                </div>
-                
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="questionCount">問題数:</label>
-                        <input type="number" id="questionCount" min="1" max="20" value="5">
-                    </div>
-                    
-                    <div class="form-group">
-                        <button class="btn" onclick="generateQuiz()">クイズを生成</button>
-                    </div>
-                </div>
-            </div>
+  <div class="tabs">
+    <div class="tab active" onclick="openTab(0)">占い</div>
+    <div class="tab" onclick="openTab(1)">AIチャット</div>
+  </div>
 
-            <!-- クイズ実行画面 -->
-            <div class="quiz-playing" id="quizPlaying">
-                <div class="quiz-progress" id="quizProgress"></div>
-                <h2 id="quizTitleDisplay"></h2>
-                
-                <div class="question" id="currentQuestion"></div>
-                
-                <ul class="selections" id="selections"></ul>
-                
-                <div class="answer-feedback" id="answerFeedback"></div>
-                
-                <button class="btn" id="nextBtn" onclick="nextQuestion()" style="display: none;">次の問題</button>
-                <button class="btn" id="finishBtn" onclick="showResults()" style="display: none;">結果を見る</button>
-            </div>
+  <!-- ===== 占い ===== -->
+  <div class="panel active">
+    <div class="card">
+      <label>生年月日</label>
+      <input type="date" id="birthDate">
 
-            <!-- 結果画面 -->
-            <div class="quiz-results" id="quizResults">
-                <h2>クイズ結果</h2>
-                <div class="score" id="finalScore"></div>
-                <button class="btn" onclick="restartQuiz()">新しいクイズを作成</button>
-            </div>
-        </div>
+      <label>睡眠の質</label>
+      <select id="sleep">
+        <option value="良い">よく眠れた</option>
+        <option value="普通">普通</option>
+        <option value="悪い">ほとんど眠れていない</option>
+      </select>
 
-        <div class="status" id="status">Ready</div>
-        <div class="loading" id="loading">クイズを生成中...</div>
+      <label>今日の気分</label>
+      <select id="mood">
+        <option value="良い">😄 良い</option>
+        <option value="普通">😐 普通</option>
+        <option value="悪い">😣 悪い</option>
+      </select>
+
+      <label>体の調子</label>
+      <select id="body">
+        <option value="良い">元気</option>
+        <option value="普通">少しだるい</option>
+        <option value="悪い">痛み・不調がある</option>
+      </select>
+
+      <label>ストレス</label>
+      <select id="stress">
+        <option value="低い">ない</option>
+        <option value="普通">少しある</option>
+        <option value="高い">強い</option>
+      </select>
+
+      <button onclick="generateFortune()">占う</button>
     </div>
 
-    <script>
-        let quizData = [];
-        let currentQuestionIndex = 0;
-        let score = 0;
-        let selectedAnswer = null;
-        let hasAnswered = false;
+    <div id="loading" style="display:none;">🔮 占い中…</div>
+    <div class="result" id="result"></div>
+  </div>
 
-        // 初期化
-        document.addEventListener('DOMContentLoaded', function() {
-            updateStatus();
-        });
+  <!-- ===== AIチャット ===== -->
+  <div class="panel">
+  <div id="chatLoading" style="display:none; text-align:center;">💬 送信中…</div>
+  <div class="chat" id="chat"></div>
+  <textarea id="chatInput"></textarea>
+  <button onclick="sendChat()">送信</button>
+</div>
 
-        // ステータス更新
-        function updateStatus() {
-            const statusEl = document.getElementById('status');
-            statusEl.textContent = 'Ready to generate ITパスポート quiz';
-            statusEl.style.color = '#28a745';
+
+<script>
+  function openTab(i) {
+    document.querySelectorAll('.tab').forEach((t,n)=>t.classList.toggle('active',n===i));
+    document.querySelectorAll('.panel').forEach((p,n)=>p.classList.toggle('active',n===i));
+  }
+
+  /* ===== 占い ===== */
+  async function generateFortune() {
+    loading.style.display = 'block';
+
+    const res = await fetch('/api/fortune', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        birthDate: birthDate.value,
+        health: {
+          sleep: sleep.value,
+          mood: mood.value,
+          body: body.value,
+          stress: stress.value
         }
+      })
+    });
 
-        // クイズ生成
-        async function generateQuiz() {
-            const title = document.getElementById('quizTitle').value.trim();
-            const count = parseInt(document.getElementById('questionCount').value);
+    const data = await res.json();
+    loading.style.display = 'none';
 
-            if (!title || count < 1) {
-                alert('すべての項目を正しく入力してください');
-                return;
-            }
+    result.innerHTML = '';
+    for (const k in data.fortunes) {
+      const f = data.fortunes[k];
+      result.innerHTML += `
+        <div class="fortune ${k}">
+          <strong>${f.type}</strong>
+          <p>${f.result}</p>
+          <p>運勢：${f.luck}</p>
+        </div>`;
+    }
+  }
 
-            document.getElementById('loading').classList.add('show');
+  /* ===== AIチャット ===== */
+  const socket = io();
+  const chat = document.getElementById('chat');
+  const input = document.getElementById('chatInput');
+  const chatLoading = document.getElementById('chatLoading');
 
-            try {
-                const response = await fetch('/api/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        title: title,
-                        count: count
-                    })
-                });
+  function sendChat() {
+    const text = input.value.trim();
+    if (!text) return;
 
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'API error');
-                }
+    chat.innerHTML += `<div class="msg user">👤 ${text}</div>`;
+    chatLoading.style.display = 'block';   // ← 表示
+    socket.emit('user-message', text);
+    input.value = '';
+  }
 
-                const data = await response.json();
-                quizData = data.questions;
+  socket.on('ai-message', d => {
+    chatLoading.style.display = 'none';    // ← 非表示
+    chat.innerHTML += `
+      <div class="msg ${d.agent}">
+        <strong>${d.name}</strong><br>
+        ${d.message}
+      </div>`;
+    chat.scrollTop = chat.scrollHeight;
+  });
+</script>
 
-                if (!Array.isArray(quizData) || quizData.length === 0) {
-                    throw new Error('Invalid quiz data format');
-                }
+<script>
+let angle = 0;
+function setup() {
+  const c = createCanvas(260,260,WEBGL);
+  c.parent(document.body);
+}
+function draw() {
+  background(0);
+  rotateY(angle);
+  ambientLight(180);
+  ambientMaterial(120,120,255);
+  sphere(90);
+  angle += 0.01;
+}
+</script>
 
-                currentQuestionIndex = 0;
-                score = 0;
-                document.getElementById('quizTitleDisplay').textContent = data.title;
-                startQuiz();
-                
-            } catch (error) {
-                console.error('Error:', error);
-                alert('クイズの生成に失敗しました: ' + error.message);
-            } finally {
-                document.getElementById('loading').classList.remove('show');
-            }
-        }
-
-        // クイズ開始
-        function startQuiz() {
-            document.getElementById('quizSetup').style.display = 'none';
-            document.getElementById('quizPlaying').style.display = 'block';
-            document.getElementById('quizResults').style.display = 'none';
-            showQuestion();
-        }
-
-        // 問題表示
-        function showQuestion() {
-            if (currentQuestionIndex >= quizData.length) {
-                showResults();
-                return;
-            }
-
-            const question = quizData[currentQuestionIndex];
-            hasAnswered = false;
-            selectedAnswer = null;
-
-            document.getElementById('quizProgress').textContent = 
-                `問題 ${currentQuestionIndex + 1} / ${quizData.length}`;
-            
-            document.getElementById('currentQuestion').textContent = question.question;
-            
-            const selectionsEl = document.getElementById('selections');
-            selectionsEl.innerHTML = '';
-            
-            question.selections.forEach((selection, index) => {
-                const li = document.createElement('li');
-                li.className = 'selection-item';
-                li.textContent = selection;
-                li.onclick = () => selectAnswer(index);
-                selectionsEl.appendChild(li);
-            });
-
-            document.getElementById('answerFeedback').style.display = 'none';
-            document.getElementById('nextBtn').style.display = 'none';
-            document.getElementById('finishBtn').style.display = 'none';
-        }
-
-        // 答え選択
-        function selectAnswer(index) {
-            if (hasAnswered) return;
-
-            selectedAnswer = index;
-            hasAnswered = true;
-
-            const question = quizData[currentQuestionIndex];
-            const correctAnswer = question.answer;
-            const isCorrect = selectedAnswer === correctAnswer;
-
-            if (isCorrect) {
-                score++;
-            }
-
-            const selectionItems = document.querySelectorAll('.selection-item');
-            selectionItems.forEach((item, i) => {
-                item.onclick = null;
-                if (i === correctAnswer) {
-                    item.classList.add('correct');
-                } else if (i === selectedAnswer && !isCorrect) {
-                    item.classList.add('incorrect');
-                }
-            });
-
-            const feedback = document.getElementById('answerFeedback');
-            feedback.style.display = 'block';
-            if (isCorrect) {
-                feedback.className = 'answer-feedback correct';
-                feedback.textContent = '正解！';
-            } else {
-                feedback.className = 'answer-feedback incorrect';
-                feedback.textContent = `不正解。正解は「${question.selections[correctAnswer]}」です。`;
-            }
-
-            if (currentQuestionIndex < quizData.length - 1) {
-                document.getElementById('nextBtn').style.display = 'inline-block';
-            } else {
-                document.getElementById('finishBtn').style.display = 'inline-block';
-            }
-        }
-
-        // 次の問題
-        function nextQuestion() {
-            currentQuestionIndex++;
-            showQuestion();
-        }
-
-        // 結果表示
-        function showResults() {
-            document.getElementById('quizPlaying').style.display = 'none';
-            document.getElementById('quizResults').style.display = 'block';
-            
-            const percentage = Math.round((score / quizData.length) * 100);
-            document.getElementById('finalScore').textContent = 
-                `${score} / ${quizData.length} 問正解 (${percentage}%)`;
-        }
-
-        // クイズリスタート
-        function restartQuiz() {
-            document.getElementById('quizResults').style.display = 'none';
-            document.getElementById('quizSetup').style.display = 'block';
-            quizData = [];
-            currentQuestionIndex = 0;
-            score = 0;
-        }
-    </script>
 </body>
 </html>
