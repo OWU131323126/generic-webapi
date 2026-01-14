@@ -80,10 +80,10 @@ async function callOpenAIForFortune(prompt) {
 
   const data = await response.json();
 
-  // 🔥 ガード（Renderでの undefined 防止）
+  // ✅ Render対策：ここが最重要
   if (!data.choices || !data.choices[0]) {
-    console.error('OpenAI INVALID RESPONSE:', data);
-    throw new Error('OpenAI response invalid');
+    console.error('INVALID OPENAI RESPONSE:', data);
+    throw new Error('OpenAI応答が不正です');
   }
 
   const raw = data.choices[0].message.content;
@@ -93,11 +93,12 @@ async function callOpenAIForFortune(prompt) {
     parsed = JSON.parse(raw);
   } catch (e) {
     console.error('JSON PARSE ERROR:', raw);
-    throw new Error('占い結果JSONの解析に失敗');
+    throw new Error('JSON解析に失敗しました');
   }
 
   return parsed.fortunes;
 }
+
 
 /* ======================
    💬 OpenAI（チャット専用：文章）
