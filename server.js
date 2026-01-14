@@ -4,6 +4,10 @@ require('dotenv').config();
 const http = require('http');
 const { Server } = require('socket.io');
 
+// Node18未満対策（Render用）
+const fetch = (...args) =>
+  import('node-fetch').then(({ default: fetch }) => fetch(...args));
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
@@ -49,13 +53,13 @@ app.post('/api/fortune', async (req, res) => {
     res.json({ fortunes });
 
   } catch (err) {
-    console.error(err);
+    console.error('FORTUNE ERROR:', err);
     res.status(500).json({ error: '占い生成エラー' });
   }
 });
 
 /* ======================
-   🔮 OpenAI（占い専用：JSON）
+   🔮 OpenAI（占い専用：JSONを期待）
 ====================== */
 async function callOpenAIForFortune(prompt) {
   if (!process.env.OPENAI_API_KEY) {
@@ -70,15 +74,28 @@ async function callOpenAIForFortune(prompt) {
     },
     body: JSON.stringify({
       model: MODEL,
-      messages: [{ role: 'system', content: prompt }],
-      response_format: { type: 'json_object' }
+      messages: [{ role: 'system', content: prompt }]
     })
   });
 
   const data = await response.json();
+
+  // 🔥 ガード（Renderでの undefined 防止）
+  if (!data.choices || !data.choices[0]) {
+    console.error('OpenAI INVALID RESPONSE:', data);
+    throw new Error('OpenAI response invalid');
+  }
+
   const raw = data.choices[0].message.content;
 
-  const parsed = JSON.parse(raw);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    console.error('JSON PARSE ERROR:', raw);
+    throw new Error('占い結果JSONの解析に失敗');
+  }
+
   return parsed.fortunes;
 }
 
@@ -103,6 +120,12 @@ async function callOpenAIForChat(prompt) {
   });
 
   const data = await response.json();
+
+  if (!data.choices || !data.choices[0]) {
+    console.error('CHAT INVALID RESPONSE:', data);
+    throw new Error('Chat response invalid');
+  }
+
   return data.choices[0].message.content.trim();
 }
 
@@ -156,7 +179,7 @@ io.on('connection', socket => {
       }
 
     } catch (err) {
-      console.error(err);
+      console.error('CHAT ERROR:', err);
       socket.emit('ai-message', {
         agent: 'system',
         name: 'System',
