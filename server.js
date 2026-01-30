@@ -1,5 +1,6 @@
 const express = require('express');
 const fs = require('fs');
+const fetch = require('node-fetch');
 require('dotenv').config();
 const http = require('http');
 const { Server } = require('socket.io');
@@ -16,9 +17,12 @@ app.use(express.static('public'));
 /* ======================
    設定
 ====================== */
-const MODEL = 'gpt-4o-mini';
-const OPENAI_API_ENDPOINT =
-  'https://api.openai.com/v1/chat/completions';
+const MODEL = 'gpt-4o'; // ✅
+const PROVIDER = 'openai'; // ✅
+
+
+const OPENAI_API_ENDPOINT ="https://openai-api-proxy-746164391621.us-west1.run.app"
+;
 
 /* ======================
    prompt.md 読み込み（占い用）
@@ -76,23 +80,60 @@ async function callOpenAIForFortune(prompt) {
     })
   });
 
+  // 🔥 ① HTTPレベルのチェック
+  if (!response.ok) {
+    const text = await response.text();
+    console.error('HTTP ERROR:', response.status, text);
+    throw new Error('OpenAI HTTP error');
+  }
+
   const data = await response.json();
 
-  if (!data.choices || !data.choices[0]) {
-    console.error('OpenAI INVALID RESPONSE:', data);
+  // 🔥 ② OpenAIエラー構造チェック
+  if (data.error) {
+    console.error('OPENAI ERROR:', data.error);
+    throw new Error('OpenAI API error');
+  }
+
+  console.log('RAW OPENAI DATA:', JSON.stringify(data, null, 2));
+
+  // 🔥 ③ choices存在チェック
+  if (!data.choices || !data.choices[0]?.message?.content) {
+    console.error('NO CHOICES:', data);
     throw new Error('OpenAI response invalid');
   }
 
-  const raw = data.choices[0].message.content;
+  let raw = data.choices[0].message.content.trim();
 
-  const parsed = JSON.parse(raw);
+  // 🔥 ④ ```json 除去（最終保険）
+  raw = raw
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```$/, '');
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    console.error('JSON PARSE ERROR:', raw);
+    throw new Error('OpenAI response invalid');
+  }
+
+  if (!parsed.fortunes) {
+    console.error('NO fortunes FIELD:', parsed);
+    throw new Error('OpenAI response invalid');
+  }
+
   return parsed.fortunes;
 }
-
 /* ======================
-   💬 OpenAI（チャット専用：文章）
+   💬 OpenAI（チャット用）
 ====================== */
 async function callOpenAIForChat(prompt) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY が設定されていません');
+  }
+
   const response = await fetch(OPENAI_API_ENDPOINT, {
     method: 'POST',
     headers: {
@@ -102,20 +143,28 @@ async function callOpenAIForChat(prompt) {
     body: JSON.stringify({
       model: MODEL,
       messages: [
-        { role: 'system', content: prompt }
+        { role: 'user', content: prompt }
       ]
     })
   });
 
-  const data = await response.json();
-
-  if (!data.choices || !data.choices[0]) {
-    console.error('CHAT INVALID RESPONSE:', data);
-    throw new Error('Chat response invalid');
+  if (!response.ok) {
+    const text = await response.text();
+    console.error('CHAT HTTP ERROR:', response.status, text);
+    throw new Error('OpenAI chat HTTP error');
   }
 
-  return data.choices[0].message.content.trim();
+  const data = await response.json();
+
+  if (data.error) {
+    console.error('CHAT OPENAI ERROR:', data.error);
+    throw new Error('OpenAI chat API error');
+  }
+
+  return data?.choices?.[0]?.message?.content || '……（応答なし）';
 }
+
+
 
 /* ======================
    🔥 AIチャット（Socket.IO）
